@@ -1,166 +1,127 @@
 # add-to-calendar
 
-> 把课表、校历、会议通知、机票/火车行程单（文件或截图）批量解析并写入 **macOS 日历（Calendar.app）** 的 Agent Skill。
->
-> An Agent Skill that batch-parses class schedules, academic calendars, meeting notices and flight/train itineraries (files or screenshots) into **Apple Calendar on macOS**.
+把课表、校历、会议通知和行程单整理成 macOS「日历」里的事件。Agent 会先读取材料、按校历换算日期，再给你一份待写入清单；确认后才写入，并回读核对、提示时间冲突。
 
----
+适合每学期要录入一批课程，或想把 PDF、表格、截图和聊天里的安排集中进日历的人。
 
-## 目录 / Contents
+## 能做什么
 
-- [中文说明](#中文说明)（默认）
-- [English](#english)
+- 从 xlsx、PDF、图片和文字中提取课程、会议与出行安排；读取合并单元格课表。
+- 按第 1 周周一、周次、星期和节次换算实际日期与时间，并结合校历处理放假、补课和停课。
+- 写入前预览；写入时按标题和开始时间跳过重复事件；写入后回读核对并报告日程冲突。
 
----
+冲突只会报告给你，不会自动删除或改动已有事件。
 
-## 中文说明
+## 适用范围与 Agent 兼容性
 
-### 这是什么
+本项目使用 `SKILL.md`、`scripts/` 和 `references/` 组织内容，符合开放的 [Agent Skills 格式](https://agentskills.io/specification)。同一份 skill 可供 ZCode、Codex 和 Claude Code 使用；Codex 与 Claude Code 的安装目录按各自文档为准：[Codex Skills](https://developers.openai.com/api/docs/guides/tools-skills) · [Claude Code Skills](https://code.claude.com/docs/en/skills)。
 
-把"人发来的日程材料"变成"日历里整齐的事件"。你把课表截图、选课系统导出的 xlsx、校历 PDF、会议通知或航班行程单直接发给你的 AI Agent（ZCode / Claude Code / Codex 等），它就会：
+同一份 `SKILL.md` 同时面向 Codex 和 ZCode：在 ZCode 中可继续使用已安装的 document-skills 和原生文件引用；在 Codex 中使用 Codex 当前提供的文件、PDF、图片和终端工具。skill 本身不要求其中任何一方，也不假设两边的工具名称和安装目录相同。若自动发现没有触发，可在对话中明确要求使用 `add-to-calendar`。运行写入仍有两个条件：
 
-1. **提取**：读 xlsx 课表（含合并单元格）、PDF、截图、聊天消息里的日程；
-2. **换算日期**：`日期 = 第1周周一 + (周次-1)×7 + (星期几-1)`，节次 → 具体时刻，并处理节假日与调休（补课/停课）；
-3. **确认计划**：先给你看将要写入的事件清单和所做假设；
-4. **写入日历**：通过 `scripts/cal.py` 批量写入 Calendar.app，自动按标题+时间去重；
-5. **核对与冲突提醒**：写完回读核对条数，检查与已有课程/行程的时间冲突（只报告，不擅自删改）。
+- `references/timetables.md` 含作者所在学校的课时、校历和日历名称。使用前请替换成自己的信息，或以当次提供的材料为准。
+- 写入由 `scripts/cal.py` 通过 AppleScript 控制 Calendar.app。Agent 必须能在装有 Calendar.app 的 Mac 上运行本地命令；仅能访问云端容器的 agent 无法替你操作这台 Mac 的日历。
 
-### 用户需要做什么（3 步）
+安装位置示例：
 
-**第 1 步：安装 skill**
+| Agent | 常见个人 skill 目录 |
+|---|---|
+| ZCode | `~/.zcode/skills/add-to-calendar` |
+| Codex | `~/.agents/skills/add-to-calendar` |
+| Claude Code | `~/.claude/skills/add-to-calendar` |
 
-把整个 `add-to-calendar` 文件夹拷贝到你所用 agent 的 skills 目录（没有就新建）：
+其他 agent 请使用其文档指定的 skills 目录。安装后若 agent 没有自动发现 skill，可在对话中明确要求它使用 `add-to-calendar`。
+
+## 安装与运行
+
+把整个仓库复制到对应目录。例如 Codex：
 
 ```bash
 mkdir -p ~/.agents/skills
-cp -r /path/to/add-to-calendar ~/.agents/skills/
-# ZCode 用户也可以放 ~/.zcode/skills/
+cp -R /path/to/add-to-calendar ~/.agents/skills/
 ```
 
-重启 agent 会话后，skill 会被自动发现。你不需要背任何命令——
+Claude Code 用户把目标目录改为 `~/.claude/skills`；ZCode 用户可使用 `~/.zcode/skills`。然后按 agent 的说明重新加载或启动会话。
 
-**第 2 步：授权（仅首次）**
+运行前准备好两项信息：
 
-macOS 会要求"终端/agent App 控制日历"的权限。首次写入时如果弹出授权窗口，点"允许"；如果没弹或误点了拒绝：
+1. 校历上的「第 1 周周一」日期。Agent 不应靠猜测补出这一天。
+2. 目标日历名称，例如「专业课」或「生活」。脚本不会创建日历；如果目标日历还不存在，请先在 Calendar.app 中创建。
 
-> 系统设置 → 隐私与安全性 → 自动化 → 找到你的终端 App → 勾选"日历"
+把材料和这两项信息发给 agent。先检查它列出的事件、日期换算和假设，再让它写入。
 
-**第 3 步：发材料 + 说一句话**
+例如：「这是我的课表截图和校历。第 1 周周一是 8 月 31 日，课程放进『专业课』。请先列出安排，我确认后再写入。」
 
-把课表/校历/通知发给 agent，同时告诉它两件只有你知道的事：
+## 环境要求
 
-- 📅 **第 1 周周一是哪天**（校历上有；agent 不会猜）
-- 🗂 **想写进哪个日历**（没有就让它新建，比如"专业课""生活"）
+- macOS 和 Calendar.app；Calendar 自动化权限需授予运行 agent 命令的终端或应用。
+- Python 3；`cal.py` 本身只用标准库。读取 xlsx 需要 `openpyxl`。
+- Agent 能读取所给文件和图片，并能在本机运行 Python 与 `osascript`。
 
-示例：
+首次写入时，macOS 可能会询问是否允许终端或 agent 应用控制「日历」。也可以在「系统设置 → 隐私与安全性 → 自动化」中启用权限。
 
-> "这是我的课表截图和校历，第 1 周周一是 9 月 1 日，课写进「专业课」，其他写进「生活」，加到日历。"
+## 命令示例
 
-之后的所有解析、换算、写入、核对都由 agent 完成。
-
-### 支持的输入
-
-| 输入 | 说明 |
-|---|---|
-| xlsx 课表 | 选课系统/教务系统导出，含合并单元格也能读 |
-| PDF 校历/通知/行程单 | 有文字层直接读；扫描件会转图片识别 |
-| 截图/照片 | 课表截图、微信聊天记录、会议通知照片 |
-| 一句话 | "周三下午 3 点和王老师开会"也行 |
-
-### 给 Agent 的说明
-
-Agent 请完整阅读 [SKILL.md](SKILL.md) 后再动手，要点：
-
-- 一律用 `scripts/cal.py`，**不要手写 osascript**（日期本地化、allday 损坏、whose 查询等坑已封装，见 SKILL.md"已知坑"）；
-- **第 1 周周一只能从用户的校历获取**，节次表以用户材料为准（本仓库 `references/timetables.md` 只是作者本机的默认值，其他用户请替换或直接在对话中提供）；
-- 写入前先 `--dry-run` 预览；写完必须 `list` 回读核对；冲突**只报告不删改**；
-- 模糊时间（"下午3点左右"）按整点记、时长未知默认 1 小时，并**必须向用户说明假设**。
-
-`cal.py` 命令一览：
+以下示例中的 `/path/to/add-to-calendar` 请替换成 skill 实际安装位置。
 
 ```bash
-cal.py calendars                                   # 列出所有日历
-cal.py list --calendar 生活 --from 2026-09-01 --to 2026-09-30 [--title 关键词]
-cal.py add --calendar 生活 --file events.json [--dry-run]
-cal.py conflicts --file events.json --calendars 专业课,公共课
-cal.py delete --calendar 生活 --title "xx" --from ... --to ... [--yes]
+# 查看日历
+python3 /path/to/add-to-calendar/scripts/cal.py calendars
+
+# 预览 JSON 里的事件，不写入
+python3 /path/to/add-to-calendar/scripts/cal.py add \
+  --calendar 生活 --file events.json --dry-run
+
+# 确认预览无误后写入
+python3 /path/to/add-to-calendar/scripts/cal.py add \
+  --calendar 生活 --file events.json
+
+# 回读并检查时间冲突
+python3 /path/to/add-to-calendar/scripts/cal.py list \
+  --calendar 生活 --from 2026-09-01 --to 2026-09-30
+python3 /path/to/add-to-calendar/scripts/cal.py conflicts \
+  --file events.json --calendars 专业课,公共课
 ```
 
-事件文件为 JSON 数组：
+事件文件是 JSON 数组，例如：
 
 ```json
 [
-  {"title": "天文写作", "start": "2026-09-09 13:30", "end": "2026-09-09 16:10",
-   "location": "B201", "notes": "第2周 周三(5-7节)", "calendar": "专业课"}
+  {
+    "title": "天文写作",
+    "start": "2026-09-09 13:30",
+    "end": "2026-09-09 16:10",
+    "location": "B201",
+    "notes": "第 2 周，周三第 5–7 节",
+    "calendar": "专业课"
+  }
 ]
 ```
 
-### 环境要求
+## 注意事项
 
-- macOS（依赖 Calendar.app + AppleScript）
-- Python 3（仅标准库；解析 xlsx 另需 `pip install openpyxl`）
-- 终端对"日历"的自动化权限（见上）
-
-### 已知限制
-
-- **全天事件属性在 AppleScript 下损坏**（系统报 -1700），跨天活动用"首尾带具体时间的计时日程"替代；
-- 走 AppleScript 而非 EventKit（后者对终端的权限模型不可用）；
-- 批量写入可能"部分成功后中止"，脚本已按标题+时间去重，重跑安全，但重跑前建议先 `list` 看现场。
-
----
+- `references/timetables.md` 里的节次表和校历是特定学校、特定学期的信息；每学期都要重新核对。
+- AppleScript 的全天事件标记在本项目目标环境中不可用。跨天活动会写成带起止时间的计时事件。
+- 批量写入中途可能有个别事件失败。脚本会跳过已存在的标题和开始时间；重跑前先用 `list` 查看日历。
+- 模糊时间会按整点处理；没有时长时默认 1 小时。Agent 应在写入前把这些假设告诉你。
 
 ## English
 
-### What is this
+Turn timetables, academic calendars, notices, and itineraries into events in Apple Calendar. The agent extracts the details, converts weeks and class periods into dates, shows you a preview, and writes events only after you confirm. It then reads them back and reports conflicts. Existing events are never changed automatically.
 
-An agent skill that turns schedule material you send (class timetables, academic calendars, meeting notices, flight itineraries — as files or screenshots) into clean Apple Calendar events on macOS. Your AI agent (ZCode, Claude Code, Codex, …) will:
+### Compatibility
 
-1. **Extract** events from xlsx (merged cells supported), PDF, screenshots, or chat messages;
-2. **Convert** week numbers + class periods into real dates/times using your academic calendar (week-1 Monday), handling holidays and make-up classes;
-3. **Confirm** the plan and its assumptions with you before writing;
-4. **Write** events into Calendar.app via `scripts/cal.py` (dedup by title + start time);
-5. **Verify** by reading back, and **report conflicts** with existing events (report only — never deletes/modifies on its own).
+The folder follows the open [Agent Skills format](https://agentskills.io/specification). The same skill is intended for ZCode, [Codex](https://developers.openai.com/api/docs/guides/tools-skills), and [Claude Code](https://code.claude.com/docs/en/skills). In ZCode, it can use the document-skills plugin and native file citations when available; in Codex, it uses the file, PDF, image, and terminal tools available there. Neither agent is excluded. Other agents can use it if they discover and read `SKILL.md`.
 
-### What YOU need to do (3 steps)
+Calendar writes still require a local macOS session with Calendar.app, Python, `osascript`, and Automation permission; a cloud-only agent cannot control the Calendar app on your Mac. The timetable reference also contains the author's school-specific data and should be updated before use.
 
-1. **Install** — copy this folder into your agent's skills directory:
+### Requirements and setup
 
-   ```bash
-   mkdir -p ~/.agents/skills
-   cp -r /path/to/add-to-calendar ~/.agents/skills/
-   # ZCode users may also use ~/.zcode/skills/
-   ```
+- macOS with Calendar.app and permission for the agent's terminal to control it.
+- Python 3. Install `openpyxl` to read xlsx files.
+- Install the whole folder in your agent's skill directory. Common locations are `~/.zcode/skills`, `~/.agents/skills` (Codex), and `~/.claude/skills` (Claude Code).
+- Before scheduling, provide the date of Week 1 Monday and the destination calendar name. Create the calendar in Calendar.app first if it does not exist, then check the preview before asking the agent to write events.
 
-   Restart your agent session; the skill is discovered automatically.
-
-2. **Grant permission (first time only)** — macOS needs your terminal/agent app to control Calendar. Approve the popup on first run, or set it manually:
-   *System Settings → Privacy & Security → Automation → your terminal app → Calendar*.
-
-3. **Send your schedule + two facts** — give the agent your timetable/calendar files and tell it:
-   * the date of **Week-1 Monday** (from your academic calendar — the agent will not guess), and
-   * which **calendar names** to use (e.g. "Courses", "Life"; it can create them).
-
-   Example: *"Here's my timetable screenshot and academic calendar. Week-1 Monday is Sep 1. Put courses into 'Courses' and everything else into 'Life', add to my calendar."*
-
-   Everything else — parsing, date math, writing, verification — is the agent's job.
-
-### For agents
-
-Read [SKILL.md](SKILL.md) in full before acting. Key rules: always use `scripts/cal.py` (never hand-write osascript — localization, broken all-day events and `whose` pitfalls are already handled); get Week-1 Monday only from the user's academic calendar; `--dry-run` before writing, `list` to verify after; report conflicts without deleting; state assumptions for fuzzy times (default duration 1 hour).
-
-`references/timetables.md` ships the author's local period tables (Nanjing College / USTC) as a default — replace it with your own or provide times in chat.
-
-### Requirements
-
-- macOS with Calendar.app; Python 3 (stdlib only; `pip install openpyxl` for xlsx); Automation permission for your terminal (see above).
-
-### Known limitations
-
-- The all-day flag is broken in Calendar's AppleScript bridge (error -1700): multi-day events are written as timed events spanning days instead.
-- Uses AppleScript rather than EventKit.
-- Batch writes can abort midway after partial success; the script dedups by title + start time, so re-running is safe — but check with `list` first.
-
----
+See the Chinese sections above for command examples, event JSON fields, and known limitations.
 
 ## License
 
